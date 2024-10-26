@@ -11,6 +11,8 @@ import torchaudio
 from transformers import WhisperFeatureExtractor, AutoTokenizer, AutoModel
 from speech_tokenizer.modeling_whisper import WhisperVQEncoder
 
+import gc
+
 
 sys.path.insert(0, "./cosyvoice")
 sys.path.insert(0, "./third_party/Matcha-TTS")
@@ -75,6 +77,9 @@ if __name__ == "__main__":
             previous_input_tokens: str,
             previous_completion_tokens: str,
     ):
+        gc.collect()
+        torch.cuda.empty_cache()
+        torch.cuda.ipc_collect()
 
         if input_mode == "audio":
             assert audio_path is not None
