@@ -1,5 +1,5 @@
 # GLM-4-Voice
-Read this in [English](./README_en.md)
+Read this in [English](./README_en.md) | [日本語](./README_ja.md)で読む
 
 GLM-4-Voice 是智谱 AI 推出的端到端语音模型。GLM-4-Voice 能够直接理解和生成中英文语音，进行实时语音对话，并且能够遵循用户的指令要求改变语音的情感、语调、语速、方言等属性。
 
