@@ -43,7 +43,7 @@ git clone https://huggingface.co/THUDM/glm-4-voice-decoder
 ### Launch Web Demo
 First, start the model service
 ```shell
-python model_server.py --model-path glm-4-voice-9b
+python model_server.py --model-path 'THUDM/glm-4-voice-9b'
 ```
 
 Then, start the web service

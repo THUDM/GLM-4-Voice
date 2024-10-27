@@ -50,7 +50,7 @@ git clone https://huggingface.co/THUDM/glm-4-voice-decoder
 ### Launch Web Demo
 首先启动模型服务
 ```shell
-python model_server.py --model-path glm-4-voice-9b
+python model_server.py --model-path 'THUDM/glm-4-voice-9b'
 ```
 此命令会自动下载 `glm-4-voice-9b`。如果网络条件不好，也手动下载之后通过 `--model-path` 指定本地的路径。
 
