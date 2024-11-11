@@ -75,7 +75,7 @@ class ModelWorker:
             model_path,
             trust_remote_code=True,
             quantization_config=self.bnb_config if self.bnb_config else None,
-            device_map={"": 0}
+            device_map=self.device
         ).eval()
         self.glm_tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
 
