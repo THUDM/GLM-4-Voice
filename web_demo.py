@@ -126,7 +126,7 @@ if __name__ == "__main__":
             tts_mels = []
             prev_mel = None
             is_finalize = False
-            block_size_list =  [25,50,100,150,200]
+            block_size_list =  [10,20,40]
             block_size_idx = 0
             block_size = block_size_list[block_size_idx]
             audio_processor = AudioStreamProcessor()
