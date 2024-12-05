@@ -10,20 +10,29 @@ from argparse import ArgumentParser
 import torchaudio
 from transformers import WhisperFeatureExtractor, AutoTokenizer
 from speech_tokenizer.modeling_whisper import WhisperVQEncoder
-
+from audio_process import AudioStreamProcessor
+from flow_inference import AudioDecoder
+import torch
+import gradio as gr
+from speech_tokenizer.utils import extract_speech_token
 
 sys.path.insert(0, "./cosyvoice")
 sys.path.insert(0, "./third_party/Matcha-TTS")
 
-from speech_tokenizer.utils import extract_speech_token
-
-import gradio as gr
-import torch
-
 audio_token_pattern = re.compile(r"<\|audio_(\d+)\|>")
 
-from flow_inference import AudioDecoder
-from audio_process import AudioStreamProcessor
+
+def ngrok_proxy(port):
+    """
+    run `ngrok config add-authtoken $NGROK_TOKEN`
+    """
+    from pyngrok import ngrok
+    import nest_asyncio
+
+    ngrok_tunnel = ngrok.connect(port)
+    print('Public URL:', ngrok_tunnel.public_url)
+    nest_asyncio.apply()
+
 
 if __name__ == "__main__":
     parser = ArgumentParser()
@@ -31,8 +40,14 @@ if __name__ == "__main__":
     parser.add_argument("--port", type=int, default="8888")
     parser.add_argument("--flow-path", type=str, default="./glm-4-voice-decoder")
     parser.add_argument("--model-path", type=str, default="THUDM/glm-4-voice-9b")
-    parser.add_argument("--tokenizer-path", type= str, default="THUDM/glm-4-voice-tokenizer")
+    parser.add_argument("--tokenizer-path", type=str, default="THUDM/glm-4-voice-tokenizer")
+    parser.add_argument("--server-addr", type=str,
+                        default="http://localhost:10000", help="server address")
+    parser.add_argument("--ngrok", action='store_true', help="use ngrok proxy")
     args = parser.parse_args()
+
+    if args.ngrok:
+        ngrok_proxy(args.port)
 
     flow_config = os.path.join(args.flow_path, "config.yaml")
     flow_checkpoint = os.path.join(args.flow_path, 'flow.pt')
@@ -41,7 +56,6 @@ if __name__ == "__main__":
     device = "cuda"
     audio_decoder: AudioDecoder = None
     whisper_model, feature_extractor = None, None
-
 
     def initialize_fn():
         global audio_decoder, feature_extractor, whisper_model, glm_model, glm_tokenizer
@@ -60,10 +74,8 @@ if __name__ == "__main__":
         whisper_model = WhisperVQEncoder.from_pretrained(args.tokenizer_path).eval().to(device)
         feature_extractor = WhisperFeatureExtractor.from_pretrained(args.tokenizer_path)
 
-
     def clear_fn():
         return [], [], '', '', '', None, None
-
 
     def inference_fn(
             temperature: float,
@@ -96,7 +108,6 @@ if __name__ == "__main__":
             user_input = input_text
             system_prompt = "User will provide you with a text instruction. Do it step by step. First, think about the instruction and respond in a interleaved manner, with 13 text token followed by 26 audio tokens."
 
-
         # Gather history
         inputs = previous_input_tokens + previous_completion_tokens
         inputs = inputs.strip()
@@ -106,7 +117,7 @@ if __name__ == "__main__":
 
         with torch.no_grad():
             response = requests.post(
-                "http://localhost:10000/generate_stream",
+                f"{args.server_addr}/generate_stream",
                 data=json.dumps({
                     "prompt": inputs,
                     "temperature": temperature,
@@ -126,7 +137,7 @@ if __name__ == "__main__":
             tts_mels = []
             prev_mel = None
             is_finalize = False
-            block_size_list =  [25,50,100,150,200]
+            block_size_list = [25, 50, 100, 150, 200]
             block_size_idx = 0
             block_size = block_size_list[block_size_idx]
             audio_processor = AudioStreamProcessor()
@@ -149,13 +160,15 @@ if __name__ == "__main__":
                                                                   finalize=is_finalize)
                     prev_mel = tts_mel
 
-                    audio_bytes = audio_processor.process(tts_speech.clone().cpu().numpy()[0], last=is_finalize)
+                    audio_bytes = audio_processor.process(
+                        tts_speech.clone().cpu().numpy()[0], last=is_finalize)
 
                     tts_speechs.append(tts_speech.squeeze())
                     tts_mels.append(tts_mel)
                     if audio_bytes:
                         yield history, inputs, '', '', audio_bytes, None
-                    flow_prompt_speech_token = torch.cat((flow_prompt_speech_token, tts_token), dim=-1)
+                    flow_prompt_speech_token = torch.cat(
+                        (flow_prompt_speech_token, tts_token), dim=-1)
                     audio_tokens = []
                 if not is_finalize:
                     complete_tokens.append(token_id)
@@ -168,16 +181,15 @@ if __name__ == "__main__":
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
             torchaudio.save(f, tts_speech.unsqueeze(0), 22050, format="wav")
         history.append({"role": "assistant", "content": {"path": f.name, "type": "audio/wav"}})
-        history.append({"role": "assistant", "content": glm_tokenizer.decode(text_tokens, ignore_special_tokens=False)})
+        history.append({"role": "assistant", "content": glm_tokenizer.decode(
+            text_tokens, ignore_special_tokens=False)})
         yield history, inputs, complete_text, '', None, (22050, tts_speech.numpy())
-
 
     def update_input_interface(input_mode):
         if input_mode == "audio":
             return [gr.update(visible=True), gr.update(visible=False)]
         else:
             return [gr.update(visible=False), gr.update(visible=True)]
-
 
     # Create the Gradio interface
     with gr.Blocks(title="GLM-4-Voice Demo", fill_height=True) as demo:
@@ -207,17 +219,25 @@ if __name__ == "__main__":
         with gr.Row():
             with gr.Column():
                 input_mode = gr.Radio(["audio", "text"], label="Input Mode", value="audio")
-                audio = gr.Audio(label="Input audio", type='filepath', show_download_button=True, visible=True)
-                text_input = gr.Textbox(label="Input text", placeholder="Enter your text here...", lines=2, visible=False)
+                audio = gr.Audio(
+                    label="Input audio",
+                    type='filepath',
+                    show_download_button=True,
+                    visible=True)
+                text_input = gr.Textbox(
+                    label="Input text",
+                    placeholder="Enter your text here...",
+                    lines=2,
+                    visible=False)
 
             with gr.Column():
                 submit_btn = gr.Button("Submit")
                 reset_btn = gr.Button("Clear")
                 output_audio = gr.Audio(label="Play", streaming=True,
                                         autoplay=True, show_download_button=False)
-                complete_audio = gr.Audio(label="Last Output Audio (If Any)", show_download_button=True)
-
-
+                complete_audio = gr.Audio(
+                    label="Last Output Audio (If Any)",
+                    show_download_button=True)
 
         gr.Markdown("""## Debug Info""")
         with gr.Row():
@@ -251,13 +271,47 @@ if __name__ == "__main__":
                 input_tokens,
                 completion_tokens,
             ],
-            outputs=[history_state, input_tokens, completion_tokens, detailed_error, output_audio, complete_audio]
+            outputs=[
+                history_state,
+                input_tokens,
+                completion_tokens,
+                detailed_error,
+                output_audio,
+                complete_audio
+            ]
         )
 
         respond.then(lambda s: s, [history_state], chatbot)
 
-        reset_btn.click(clear_fn, outputs=[chatbot, history_state, input_tokens, completion_tokens, detailed_error, output_audio, complete_audio])
-        input_mode.input(clear_fn, outputs=[chatbot, history_state, input_tokens, completion_tokens, detailed_error, output_audio, complete_audio]).then(update_input_interface, inputs=[input_mode], outputs=[audio, text_input])
+        reset_btn.click(
+            clear_fn,
+            outputs=[
+                chatbot,
+                history_state,
+                input_tokens,
+                completion_tokens,
+                detailed_error,
+                output_audio,
+                complete_audio
+            ]
+        )
+        input_mode.input(
+            clear_fn,
+            outputs=[
+                chatbot,
+                history_state,
+                input_tokens,
+                completion_tokens,
+                detailed_error,
+                output_audio,
+                complete_audio]).then(
+            update_input_interface,
+            inputs=[input_mode],
+            outputs=[
+                audio,
+                text_input
+            ]
+        )
 
     initialize_fn()
     # Launch the interface

@@ -130,15 +130,31 @@ async def generate_stream(request: Request):
     return StreamingResponse(generator)
 
 
+def ngrok_proxy(port):
+    """
+    run `ngrok config add-authtoken $NGROK_TOKEN`
+    """
+    from pyngrok import ngrok
+    import nest_asyncio
+
+    ngrok_tunnel = ngrok.connect(port)
+    print('Public URL:', ngrok_tunnel.public_url)
+    nest_asyncio.apply()
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
-    parser.add_argument("--host", type=str, default="localhost")
+    parser.add_argument("--host", type=str, default="0.0.0.0")
     parser.add_argument("--dtype", type=str, default="bfloat16")
     parser.add_argument("--device", type=str, default="cuda:0")
     parser.add_argument("--port", type=int, default=10000)
     parser.add_argument("--model-path", type=str, default="THUDM/glm-4-voice-9b")
+    parser.add_argument("--ngrok", action='store_true', help="use ngrok proxy")
+
     args = parser.parse_args()
+    if args.ngrok:
+        ngrok_proxy(args.port)
 
     worker = ModelWorker(args.model_path, args.dtype, args.device)
     uvicorn.run(app, host=args.host, port=args.port, log_level="info")
