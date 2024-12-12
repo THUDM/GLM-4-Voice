@@ -34,3 +34,6 @@ wget==3.2
 WeTextProcessing==1.0.3
 torch==2.3.0
 torchaudio==2.3.0
+pyngrok==7.2.1
+nest_asyncio==1.6.0
+bitsandbytes==0.44.1
